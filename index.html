@@ -483,7 +483,7 @@
 <div class="py-3 border-b">
 <label class="block text-xs font-bold text-gray-600 mb-1">Tipo de Entrega:</label>
 <select class="w-full bg-gray-50 border p-2 rounded-lg text-sm" id="deliveryType" onchange="toggleDeliveryFields()">
-<option value="delivery">Entrega em Domicílio (+ R$ 8,00)</option>
+<option value="delivery">Entrega em Domicílio (taxa por bairro)</option>
 <option value="pickup">Retirar na Creperia (Grátis)</option>
 </select>
 </div>
@@ -493,8 +493,11 @@
 <input class="w-full border p-2 rounded-lg text-sm" id="clientName" placeholder="Ex: Maria Silva" type="text"/>
 </div>
 <div id="addressGroup">
+<label class="block text-xs font-bold text-gray-600 mb-1">Seu Bairro *</label>
+<select class="w-full bg-gray-50 border p-2 rounded-lg text-sm" id="clientNeighborhood" onchange="calculateTotals()"></select>
+<p class="text-[11px] text-gray-500 mt-1 mb-3">Até 2 km: R$ 8,00 · acima disso, +R$ 2,00 a cada km</p>
 <label class="block text-xs font-bold text-gray-600 mb-1">Endereço Completo *</label>
-<input class="w-full border p-2 rounded-lg text-sm" id="clientAddress" placeholder="Rua, número, bairro e ponto de referência" type="text"/>
+<input class="w-full border p-2 rounded-lg text-sm" id="clientAddress" placeholder="Rua, número e ponto de referência" type="text"/>
 </div>
 <div>
 <label class="block text-xs font-bold text-gray-600 mb-1">Forma de Pagamento</label>
@@ -520,7 +523,7 @@
 </div>
 <div class="flex justify-between text-sm mb-1 text-gray-600">
 <span>Taxa de Entrega:</span>
-<span id="modalDeliveryFee">R$ 8,00</span>
+<span id="modalDeliveryFee">Escolha o bairro</span>
 </div>
 <div class="flex justify-between font-bold text-base text-gray-800 mb-4 pt-2 border-t">
 <span>Total Final:</span>
@@ -534,7 +537,90 @@
 </div>
 <script>
   const WHATSAPP_NUMBER = "5591993778266";
-  const DELIVERY_FEE = 8.00;
+
+  // =====================================================================
+  //  TAXA DE ENTREGA POR DISTÂNCIA
+  //  Origem: Rua Santa Isabel, 327 - Cidade Nova, Paragominas/PA
+  //  Regra: até 2 km = R$ 8,00 | depois disso, +R$ 2,00 a cada km (iniciado)
+  //    2 km ou menos = R$ 8 | acima de 2 até 3 km = R$ 10 | até 4 km = R$ 12 ...
+  // =====================================================================
+  const FEE_BASE = 8.00;     // valor da taxa dentro do raio inicial
+  const FEE_BASE_KM = 2;     // raio inicial (km)
+  const FEE_PER_KM = 2.00;   // acréscimo por km adicional
+
+  // DISTÂNCIA (km) da creperia até cada bairro.
+  // Para corrigir um bairro, basta mudar o número do "km" dele - a taxa é recalculada sozinha.
+  const NEIGHBORHOODS = [
+    { name: 'Açaizal', km: 6.0 },
+    { name: 'Andradina', km: 3.0 },
+    { name: 'Angelim', km: 2.0 },
+    { name: 'Aragão', km: 3.0 },
+    { name: 'Bela Vista', km: 2.5 },
+    { name: 'Camboatã', km: 1.5 },
+    { name: 'Célio Miranda', km: 1.0 },
+    { name: 'Centro', km: 0.8 },
+    { name: 'Cidade Nova', km: 0.5 },
+    { name: 'Guanabara', km: 3.5 },
+    { name: 'Industrial', km: 4.0 },
+    { name: 'Jaderlândia', km: 4.5 },
+    { name: 'Jardim Atlântico', km: 2.0 },
+    { name: 'Jardim Camboatã II', km: 2.5 },
+    { name: 'Jardim Nossa Senhora da Conceição', km: 1.0 },
+    { name: 'Juparanã', km: 5.5 },
+    { name: 'Laércio Cabeline', km: 3.5 },
+    { name: 'Módulo II', km: 0.5 },
+    { name: 'Morada do Sol (Sol Nascente)', km: 6.0 },
+    { name: 'Nagibão', km: 5.0 },
+    { name: 'Nova Conquista', km: 3.5 },
+    { name: 'Nova Esperança', km: 4.5 },
+    { name: 'Novo Camboatã', km: 3.0 },
+    { name: 'Paraíso', km: 3.5 },
+    { name: 'Parque das Américas', km: 5.0 },
+    { name: 'Parque Village Flamboyant', km: 5.5 },
+    { name: 'Presidente Juscelino', km: 2.5 },
+    { name: 'Promissão', km: 4.0 },
+    { name: 'Promissão I', km: 4.0 },
+    { name: 'Promissão II', km: 4.5 },
+    { name: 'Promissão III', km: 4.5 },
+    { name: 'Promissão IV', km: 5.0 },
+    { name: 'Setor Industrial', km: 4.5 },
+    { name: 'Tião Mineiro', km: 5.5 },
+    { name: 'Trecho Seco', km: 4.0 },
+    { name: 'Tropical', km: 3.0 },
+    { name: 'Uraim', km: 4.0 },
+    { name: 'Uraim II', km: 5.0 },
+    { name: 'Uraim III', km: 5.5 },
+    { name: 'Vila Rica', km: 2.5 }
+  ].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+  const fmtBRL = (n) => 'R$ ' + n.toFixed(2).replace('.', ',');
+
+  function feeForKm(km) {
+    if (km <= FEE_BASE_KM) return FEE_BASE;
+    return FEE_BASE + Math.ceil(km - FEE_BASE_KM) * FEE_PER_KM;
+  }
+
+  function buildNeighborhoodSelect() {
+    const sel = document.getElementById('clientNeighborhood');
+    let html = '<option value="">Selecione seu bairro</option>';
+    NEIGHBORHOODS.forEach((b, i) => {
+      html += `<option value="${i}">${b.name} — ${fmtBRL(feeForKm(b.km))}</option>`;
+    });
+    html += '<option value="other">Outro bairro / zona rural (taxa a combinar)</option>';
+    sel.innerHTML = html;
+  }
+
+  // Devolve a taxa e o texto a mostrar, conforme tipo de entrega e bairro escolhido
+  function getDeliveryInfo() {
+    const type = document.getElementById('deliveryType').value;
+    if (type !== 'delivery') return { fee: 0, label: 'Grátis', ready: true, neighborhood: '' };
+    const v = document.getElementById('clientNeighborhood').value;
+    if (v === '') return { fee: 0, label: 'Escolha o bairro', ready: false, neighborhood: '' };
+    if (v === 'other') return { fee: 0, label: 'A combinar', ready: true, pending: true, neighborhood: 'Outro bairro / zona rural' };
+    const b = NEIGHBORHOODS[Number(v)];
+    const fee = feeForKm(b.km);
+    return { fee, label: fmtBRL(fee), ready: true, neighborhood: b.name };
+  }
 
   let cart = [];
   let toastTimer = null;
@@ -696,13 +782,12 @@
 
   function calculateTotals() {
     const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
-    const deliveryType = document.getElementById('deliveryType').value;
-    const fee = deliveryType === 'delivery' ? DELIVERY_FEE : 0;
-    const total = subtotal + fee;
+    const info = getDeliveryInfo();
+    const total = subtotal + info.fee;
 
-    document.getElementById('modalSubtotal').innerText = `R$ ${subtotal.toFixed(2).replace('.', ',')}`;
-    document.getElementById('modalDeliveryFee').innerText = fee > 0 ? `R$ ${fee.toFixed(2).replace('.', ',')}` : 'Grátis';
-    document.getElementById('modalTotal').innerText = `R$ ${total.toFixed(2).replace('.', ',')}`;
+    document.getElementById('modalSubtotal').innerText = fmtBRL(subtotal);
+    document.getElementById('modalDeliveryFee').innerText = info.label;
+    document.getElementById('modalTotal').innerText = fmtBRL(total) + (info.pending ? ' + taxa' : '');
   }
 
   function scrollToCategory(id) {
@@ -738,6 +823,11 @@
       alert('Por favor, informe seu nome.');
       return;
     }
+    const info = getDeliveryInfo();
+    if (deliveryType === 'delivery' && !info.ready) {
+      alert('Por favor, selecione o seu bairro.');
+      return;
+    }
     if (deliveryType === 'delivery' && !address) {
       alert('Por favor, informe o endereço de entrega.');
       return;
@@ -747,7 +837,8 @@
     message += `👤 *Cliente:* ${name}\n`;
     message += `🛵 *Tipo:* ${deliveryType === 'delivery' ? 'Entrega em Domicílio' : 'Retirar no Local'}\n`;
     if (deliveryType === 'delivery') {
-      message += `📍 *Endereço:* ${address}\n`;
+      message += `📍 *Bairro:* ${info.neighborhood}\n`;
+      message += `🏠 *Endereço:* ${address}\n`;
     }
     message += `💳 *Pagamento:* ${payment}\n`;
     if (payment === 'Dinheiro' && change) {
@@ -763,12 +854,11 @@
     });
 
     const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
-    const fee = deliveryType === 'delivery' ? DELIVERY_FEE : 0;
-    const total = subtotal + fee;
+    const total = subtotal + info.fee;
 
-    message += `\n*Subtotal:* R$ ${subtotal.toFixed(2).replace('.', ',')}\n`;
-    message += `*Taxa de Entrega:* ${fee > 0 ? 'R$ ' + fee.toFixed(2).replace('.', ',') : 'Grátis'}\n`;
-    message += `*TOTAL FINAL:* R$ ${total.toFixed(2).replace('.', ',')}\n`;
+    message += `\n*Subtotal:* ${fmtBRL(subtotal)}\n`;
+    message += `*Taxa de Entrega:* ${info.label}\n`;
+    message += `*TOTAL FINAL:* ${fmtBRL(total)}${info.pending ? ' + taxa de entrega a combinar' : ''}\n`;
 
     const encodedMessage = encodeURIComponent(message);
     window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodedMessage}`, '_blank');
@@ -777,11 +867,14 @@
     cart = [];
     syncProductControls();
     document.getElementById('clientAddress').value = '';
+    document.getElementById('clientNeighborhood').value = '';
     document.getElementById('changeAmount').value = '';
     document.getElementById('orderNotes').value = '';
     updateCartUI();
     closeCheckoutModal();
   }
+
+  buildNeighborhoodSelect();
 
   // Destaca a categoria visível durante a rolagem (scrollspy)
   const sections = document.querySelectorAll('main > section[id]');
