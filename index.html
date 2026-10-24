@@ -495,7 +495,7 @@
 <div id="addressGroup">
 <label class="block text-xs font-bold text-gray-600 mb-1">Seu Bairro *</label>
 <select class="w-full bg-gray-50 border p-2 rounded-lg text-sm" id="clientNeighborhood" onchange="calculateTotals()"></select>
-<p class="text-[11px] text-gray-500 mt-1 mb-3">Até 2 km: R$ 8,00 · acima disso, +R$ 2,00 a cada km</p>
+<p class="text-[11px] text-gray-500 mt-1 mb-3">Taxa calculada pela distância do seu bairro até a creperia</p>
 <label class="block text-xs font-bold text-gray-600 mb-1">Endereço Completo *</label>
 <input class="w-full border p-2 rounded-lg text-sm" id="clientAddress" placeholder="Rua, número e ponto de referência" type="text"/>
 </div>
@@ -539,14 +539,27 @@
   const WHATSAPP_NUMBER = "5591993778266";
 
   // =====================================================================
-  //  TAXA DE ENTREGA POR DISTÂNCIA
+  //  TAXA DE ENTREGA POR DISTÂNCIA (tabela padrão dos entregadores)
   //  Origem: Rua Santa Isabel, 327 - Cidade Nova, Paragominas/PA
-  //  Regra: até 2 km = R$ 8,00 | depois disso, +R$ 2,00 a cada km (iniciado)
-  //    2 km ou menos = R$ 8 | acima de 2 até 3 km = R$ 10 | até 4 km = R$ 12 ...
+  //  Cobra-se o "valor tabelado" da faixa em que a distância se encaixa.
+  //  (A "parada adicional" de R$ 6,00 só vale quando o entregador agrupa
+  //   2 entregas numa mesma corrida - não é usada no site.)
+  //  Faixa: até X km (inclusive) -> valor. Para novas faixas, basta incluir uma linha.
   // =====================================================================
-  const FEE_BASE = 8.00;     // valor da taxa dentro do raio inicial
-  const FEE_BASE_KM = 2;     // raio inicial (km)
-  const FEE_PER_KM = 2.00;   // acréscimo por km adicional
+  const FEE_TABLE = [
+    { upTo: 1,  fee: 7.00 },   // 0,00 a 1,00 km
+    { upTo: 3,  fee: 8.00 },   // 1,00 a 3,00 km
+    { upTo: 4,  fee: 9.00 },   // 3,00 a 4,00 km
+    { upTo: 6,  fee: 10.00 },  // 4,00 a 6,00 km
+    { upTo: 9,  fee: 16.00 },  // 6,00 a 9,00 km
+    { upTo: 10, fee: 18.00 },  // 9,00 a 10,00 km
+    { upTo: 11, fee: 22.00 },  // 10,00 a 11,00 km
+    { upTo: 12, fee: 24.00 },  // 11,00 a 12,00 km
+    { upTo: 13, fee: 26.00 },  // 12,00 a 13,00 km
+    { upTo: 14, fee: 28.00 },  // 13,00 a 14,00 km
+    { upTo: 15, fee: 30.00 },  // 14,00 a 15,00 km
+    { upTo: 16, fee: 32.00 }   // 15,00 a 16,00 km
+  ];
 
   // DISTÂNCIA (km) da creperia até cada bairro.
   // Para corrigir um bairro, basta mudar o número do "km" dele - a taxa é recalculada sozinha.
@@ -596,8 +609,10 @@
   const fmtBRL = (n) => 'R$ ' + n.toFixed(2).replace('.', ',');
 
   function feeForKm(km) {
-    if (km <= FEE_BASE_KM) return FEE_BASE;
-    return FEE_BASE + Math.ceil(km - FEE_BASE_KM) * FEE_PER_KM;
+    for (const band of FEE_TABLE) {
+      if (km <= band.upTo) return band.fee;
+    }
+    return FEE_TABLE[FEE_TABLE.length - 1].fee; // acima da tabela: usa a última faixa
   }
 
   function buildNeighborhoodSelect() {
